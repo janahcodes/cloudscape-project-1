@@ -1,0 +1,66 @@
+#!/bin/bash
+# First-boot setup, rendered by Terraform's templatefile(). Installs the app
+# and Caddy, then runs both as systemd services.
+set -euxo pipefail
+exec > >(tee /var/log/clouddrop-setup.log) 2>&1
+
+# The web service (FastAPI) in a Python virtual environment.
+dnf install -y python3.11 python3.11-pip
+mkdir -p /opt/clouddrop/app
+cd /opt/clouddrop
+echo '${main_py}'      | base64 -d | gunzip > app/main.py
+echo '${storage_py}'   | base64 -d | gunzip > app/storage.py
+echo '${requirements}' | base64 -d | gunzip > requirements.txt
+touch app/__init__.py
+python3.11 -m venv venv
+venv/bin/pip install -r requirements.txt
+useradd --system --no-create-home clouddrop || true
+
+cat > /etc/systemd/system/clouddrop.service <<'UNIT'
+[Unit]
+Description=CloudDrop web service
+After=network-online.target
+
+[Service]
+User=clouddrop
+WorkingDirectory=/opt/clouddrop
+Environment=BUCKET_NAME=${bucket}
+Environment=AWS_REGION=${region}
+ExecStart=/opt/clouddrop/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# Caddy terminates TLS: it gets and renews a Let's Encrypt certificate,
+# redirects HTTP to HTTPS, and forwards requests to the app.
+curl -fsSL https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz \
+  | tar -xz -C /usr/local/bin caddy
+mkdir -p /etc/caddy /var/lib/caddy
+cat > /etc/caddy/Caddyfile <<'CADDY'
+{
+	email ${acme_email}
+}
+
+${fqdn} {
+	reverse_proxy 127.0.0.1:8000
+}
+CADDY
+
+cat > /etc/systemd/system/caddy.service <<'UNIT'
+[Unit]
+Description=Caddy (TLS termination)
+After=network-online.target
+
+[Service]
+Environment=XDG_DATA_HOME=/var/lib/caddy
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now clouddrop caddy

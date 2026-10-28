@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is git-ignored.
+region           = "us-east-2"
+hosted_zone_name = "your-domain.click"
+subdomain        = "app"
+acme_email       = "you@example.com"
+instance_type    = "t3.micro"
