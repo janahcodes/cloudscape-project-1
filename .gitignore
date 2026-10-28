@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Terraform: state can contain sensitive values, never commit it.
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/terraform.tfvars
+infra/.terraform.lock.hcl.bak
+infra/tfplan
+
+# macOS
+.DS_Store
+.Rhistory
